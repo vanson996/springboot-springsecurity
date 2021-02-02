@@ -12,9 +12,15 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.authentication.rememberme.JdbcTokenRepositoryImpl;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.security.SpringSessionBackedSessionRegistry;
 
+import javax.sql.DataSource;
 import java.util.Properties;
 
 /**
@@ -28,8 +34,18 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private SpringSessionBackedSessionRegistry sessionRegistry;
+
+
     @Override
     protected void configure(HttpSecurity http) throws Exception {
+        JdbcTokenRepositoryImpl repository = new JdbcTokenRepositoryImpl();
+        repository.setDataSource(dataSource);
+
         http.authorizeRequests()
                 .antMatchers("/admin/**").hasAnyRole("ADMIN")
                 .antMatchers("/user/**").hasAnyAuthority("ROLE_USER")
@@ -38,15 +54,20 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
                 .and()
                 .csrf().disable()
                 .formLogin()
-                // 指定登录页
-                .loginPage("/myLogin.html")
-                // 指定处理登录请求的路径
-                .loginProcessingUrl("/auth/form").permitAll()
-                .defaultSuccessUrl("/")
-                .failureHandler(new MyAuthenticationFailureHandler())
+                .and()
+                .rememberMe()
+                .userDetailsService(userService)
+                .key("bluroo")
+                .tokenRepository(repository)
                 .and()
                 .sessionManagement()
-                .maximumSessions(1);
+                // 最大会话数设置为 1，此处设置生效需要重写User类的equals方法
+                .maximumSessions(1)
+                // 默认为false，若为true则表示禁止当前登录
+                .maxSessionsPreventsLogin(false)
+                // 使用session提供的会话注册表
+                .sessionRegistry(sessionRegistry);
+
         // 将验证码过滤器添加到 springsecurity过滤器链中，并添加在验证用户信息之前
         http.addFilterBefore(new VerificationCodeFilter(), UsernamePasswordAuthenticationFilter.class);
     }
